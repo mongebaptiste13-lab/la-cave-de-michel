@@ -141,6 +141,7 @@ function teardown() {
   Object.assign(state, { session: null, userId: null, cellar: null, profile: null, bottles: [], history: [], bLoaded: false, hLoaded: false });
   chat.turns = [];
   $("#overlay").innerHTML = "";
+  unlockScroll();
 }
 async function loadCellar() {
   try {
@@ -352,8 +353,22 @@ $("#list").addEventListener("keydown", (e) => {
 /* Feuilles                                                            */
 /* ------------------------------------------------------------------ */
 let lastFocus = null;
+let lockedY = 0;
+function lockScroll() {
+  if (document.body.classList.contains("locked")) return;
+  lockedY = window.scrollY;
+  document.body.style.top = -lockedY + "px";
+  document.body.classList.add("locked");
+}
+function unlockScroll() {
+  if (!document.body.classList.contains("locked")) return;
+  document.body.classList.remove("locked");
+  document.body.style.top = "";
+  window.scrollTo(0, lockedY);
+}
 function openSheet(html, onMount) {
   lastFocus = document.activeElement;
+  lockScroll();
   const ov = $("#overlay");
   ov.innerHTML = '<div class="scrim" id="scrim"><div class="sheet" role="dialog" aria-modal="true">' + html + "</div></div>";
   $("#scrim").addEventListener("mousedown", (e) => { if (e.target.id === "scrim") closeSheet(); });
@@ -363,6 +378,7 @@ function openSheet(html, onMount) {
 }
 function closeSheet() {
   $("#overlay").innerHTML = "";
+  unlockScroll();
   if (lastFocus && lastFocus.focus) { try { lastFocus.focus(); } catch (e) { /* ignore */ } }
 }
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") { if ($("#scan")) closeScanner(); else if ($("#scrim")) closeSheet(); } });
