@@ -1,6 +1,7 @@
 import "./styles.css";
 import jsQR from "jsqr";
-import { auth, db, ai, photoToBase64 } from "./api.js";
+import { auth, db, ai, storage, imageToBlob, blobToBase64 } from "./api.js";
+import { bottleSVG } from "./bottle-art.js";
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
@@ -17,7 +18,7 @@ const TYPES = {
 const REASONS = { bu: "Bu", vendu: "Vendu", donne: "Donné", abime: "Abîmé", autre: "Autre" };
 
 const state = {
-  session: null, userId: null, cellar: null, bottles: [], history: [],
+  session: null, userId: null, cellar: null, profile: null, bottles: [], history: [],
   view: "cave", q: "", ftype: "all", sort: "recent", hfilter: "all", bLoaded: false, hLoaded: false,
 };
 let unsubscribe = null;
@@ -136,7 +137,8 @@ async function onSession(session) {
 }
 function teardown() {
   if (unsubscribe) { unsubscribe(); unsubscribe = null; }
-  Object.assign(state, { session: null, userId: null, cellar: null, bottles: [], history: [], bLoaded: false, hLoaded: false });
+  clearInterval(photoTimer);
+  Object.assign(state, { session: null, userId: null, cellar: null, profile: null, bottles: [], history: [], bLoaded: false, hLoaded: false });
   chat.turns = [];
   $("#overlay").innerHTML = "";
 }
@@ -158,14 +160,59 @@ async function loadCellar() {
       t = setTimeout(() => (table === "bottles" ? refreshBottles() : refreshHistory()), 250);
     });
     loadChatTurns();
+    loadProfile();
+    startPhotoRefresh();
   } catch (e) {
     show("auth");
     authMsg(errText(e, "Impossible d'ouvrir la cave."));
   }
 }
 async function refreshBottles() {
-  try { state.bottles = await db.bottles(state.cellar.id); state.bLoaded = true; renderAll(); }
-  catch (e) { state.bLoaded = true; renderAll(); toast(errText(e, "Lecture de la cave impossible.")); }
+  try {
+    state.bottles = await db.bottles(state.cellar.id);
+    state.bLoaded = true;
+    renderAll();
+    await resolvePhotos();
+    renderCave();
+  } catch (e) { state.bLoaded = true; renderAll(); toast(errText(e, "Lecture de la cave impossible.")); }
+}
+async function resolvePhotos() {
+  const paths = state.bottles.map((b) => b.photo_path).filter(Boolean);
+  if (paths.length) { try { await storage.urls("bottle-photos", paths); } catch (e) { /* photos pas encore activées */ } }
+}
+let photoTimer = null;
+function startPhotoRefresh() {
+  clearInterval(photoTimer);
+  photoTimer = setInterval(async () => {
+    await resolvePhotos();
+    const p = state.profile;
+    if (p && p.avatar_path) { try { await storage.urls("avatars", [p.avatar_path]); } catch (e) { /* ignore */ } }
+    renderCave();
+    renderMenuBtn();
+  }, 40 * 60 * 1000);
+}
+async function loadProfile() {
+  try {
+    const p = await db.myProfile(state.userId);
+    state.profile = p || {};
+    if (p && p.avatar_path) await storage.urls("avatars", [p.avatar_path]);
+  } catch (e) { state.profile = {}; }
+  renderMenuBtn();
+}
+function avatarInner(profile, email) {
+  const url = profile && profile.avatar_path ? storage.cached("avatars", profile.avatar_path) : null;
+  if (url) return '<img src="' + esc(url) + '" alt="">';
+  const src = ((profile && profile.display_name) || email || "?").trim();
+  return "<span>" + esc(src.charAt(0).toUpperCase()) + "</span>";
+}
+function renderMenuBtn() {
+  const email = state.session && state.session.user.email;
+  $("#menu").innerHTML = '<span class="avatar">' + avatarInner(state.profile, email) + "</span>";
+}
+function photoSetupError(e, fallback) {
+  const m = (e && e.message) || "";
+  if (/bucket not found|not found|does not exist|schema cache|relation/i.test(m)) return "Les photos ne sont pas encore activées : le 2e script SQL doit être exécuté dans Supabase.";
+  return errText(e, fallback);
 }
 async function refreshHistory() {
   try { state.history = await db.history(state.cellar.id); state.hLoaded = true; renderAll(); }
@@ -190,6 +237,39 @@ $("#menu").addEventListener("click", openAccountSheet);
 /* ------------------------------------------------------------------ */
 function typeStyle(t) { const k = TYPES[t] ? t : "autre"; return "--c:var(--t-" + k + ");--cf:var(--t-" + k + "-fg)"; }
 function urgent(b) { return b.apogee && b.apogee <= YEAR + 1; }
+function thumbHTML(b) {
+  const url = b.photo_path ? storage.cached("bottle-photos", b.photo_path) : null;
+  const inner = url ? '<img src="' + esc(url) + '" alt="" loading="lazy">' : bottleSVG(b);
+  return '<div class="thumb" style="' + typeStyle(b.type) + '">' + inner + '<span class="qtybadge" title="Quantité">' + (b.qty || 0) + "</span></div>";
+}
+
+/* Photo de la bouteille dans la fiche : photo perso ou illustration de référence */
+let pst = null;
+function currentFormBottle() {
+  return { name: val("f-name") || "Nom du vin", domaine: val("f-domaine"), vintage: parseInt(val("f-vintage"), 10) || null, type: getType() || "autre", region: val("f-region") };
+}
+function renderPhotoPreview() {
+  const prev = $("#p-prev");
+  if (!prev || !pst) return;
+  let html, cap;
+  if (pst.mode === "new") { html = '<img src="' + esc(pst.url) + '" alt="Photo de la bouteille">'; cap = "Ta photo"; }
+  else if (pst.mode === "existing") {
+    const u = storage.cached("bottle-photos", pst.path);
+    html = u ? '<img src="' + esc(u) + '" alt="Photo de la bouteille">' : bottleSVG(currentFormBottle());
+    cap = "Ta photo";
+  } else { html = bottleSVG(currentFormBottle()); cap = "Illustration proposée"; }
+  prev.innerHTML = html;
+  $("#p-cap").textContent = cap;
+  $("#p-illus").hidden = !(pst.mode === "new" || pst.mode === "existing");
+}
+async function setPhotoFile(file) {
+  try {
+    const blob = await imageToBlob(file, { max: 1000, quality: 0.8 });
+    if (pst.url) URL.revokeObjectURL(pst.url);
+    pst.mode = "new"; pst.blob = blob; pst.url = URL.createObjectURL(blob);
+    renderPhotoPreview();
+  } catch (e) { toast("Image illisible, essaie-en une autre."); }
+}
 function rowHTML(b) {
   let flag = "";
   if (b.apogee) {
@@ -198,7 +278,7 @@ function rowHTML(b) {
   }
   const meta = [b.vintage || "NV", b.region, b.place].filter(Boolean).map(esc).join(" · ");
   return '<div class="row" role="button" tabindex="0" data-id="' + esc(b.id) + '">'
-    + '<div class="disc" style="' + typeStyle(b.type) + '" title="' + esc((TYPES[b.type] || TYPES.autre).label) + '"><span>' + (b.qty || 0) + "</span></div>"
+    + thumbHTML(b)
     + '<div><div class="rname">' + esc(b.name) + "</div>"
     + (b.domaine ? '<div class="rdom">' + esc(b.domaine) + "</div>" : "")
     + '<div class="rmeta">' + meta + "</div>" + (flag ? "<div>" + flag + "</div>" : "") + "</div>"
@@ -340,9 +420,15 @@ function fillForm(d, onlyEmpty) {
 function openBottleSheet(b) {
   const editing = !!b;
   b = b || { qty: 1 };
+  pst = { mode: b.photo_path ? "existing" : "none", blob: null, url: null, orig: b.photo_path || null, path: b.photo_path || null };
   const html = "<h2>" + (editing ? "Modifier la bouteille" : "Ajouter une bouteille") + "</h2>"
     + '<p class="sub">' + (editing ? "Corrige les informations ou la quantité." : "Scanne, photographie ou saisis à la main.") + "</p>"
     + (editing ? "" : '<div class="quick"><button type="button" class="btn" id="b-qr">Scanner un QR code</button><button type="button" class="btn" id="b-label">Photo de l\'étiquette</button></div>')
+    + '<div class="photoblk"><div class="pprev" id="p-prev"></div><div class="pctl"><span class="lab" style="margin:0" id="p-cap">Illustration proposée</span>'
+    + '<button type="button" class="btn small" id="p-take">Prendre une photo</button>'
+    + '<button type="button" class="btn small" id="p-pick">Choisir une image</button>'
+    + '<button type="button" class="btn small ghost" id="p-illus" hidden>Utiliser l\'illustration</button></div></div>'
+    + '<input type="file" id="p-file-cam" accept="image/*" capture="environment" hidden><input type="file" id="p-file-pick" accept="image/*" hidden>'
     + '<label for="f-name">Nom du vin</label><input id="f-name" type="text" autocomplete="off" value="' + esc(b.name || "") + '" placeholder="Ex. Château Example, cuvée Prestige">'
     + '<label for="f-domaine">Domaine ou producteur</label><input id="f-domaine" type="text" autocomplete="off" value="' + esc(b.domaine || "") + '">'
     + '<div class="grid3"><div><label for="f-vintage">Millésime</label><input id="f-vintage" type="number" inputmode="numeric" min="1800" max="2100" value="' + esc(b.vintage || "") + '" placeholder="NV"></div>'
@@ -364,12 +450,21 @@ function openBottleSheet(b) {
     const qrb = $("#b-qr"); if (qrb) qrb.addEventListener("click", openScanner);
     const lb = $("#b-label"); if (lb) lb.addEventListener("click", () => $("#labelfile").click());
     $("#b-ai").addEventListener("click", aiComplete);
+    renderPhotoPreview();
+    if (pst.mode === "existing") storage.urls("bottle-photos", [pst.path]).then(renderPhotoPreview).catch(() => {});
+    const camIn = $("#p-file-cam"), pickIn = $("#p-file-pick");
+    $("#p-take").addEventListener("click", () => camIn.click());
+    $("#p-pick").addEventListener("click", () => pickIn.click());
+    [camIn, pickIn].forEach((inp) => inp.addEventListener("change", (e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; if (f) setPhotoFile(f); }));
+    $("#p-illus").addEventListener("click", () => { if (pst.url) URL.revokeObjectURL(pst.url); pst.mode = "none"; pst.blob = null; pst.url = null; renderPhotoPreview(); });
+    ["f-name", "f-domaine", "f-vintage", "f-region"].forEach((id) => $("#" + id).addEventListener("input", () => { if (pst.mode !== "new") renderPhotoPreview(); }));
+    $$("input[name=f-type]").forEach((r) => r.addEventListener("change", () => { if (pst.mode !== "new") renderPhotoPreview(); }));
     if (editing) {
       $("#b-remove").addEventListener("click", () => { closeSheet(); openRemoveSheet(b); });
       const del = $("#b-del"); let armed = false;
       del.addEventListener("click", async () => {
         if (!armed) { armed = true; del.textContent = "Confirmer la suppression"; setTimeout(() => { armed = false; if (del.isConnected) del.textContent = "Supprimer la ligne"; }, 4000); return; }
-        try { await db.deleteBottle(b.id); closeSheet(); toast("Ligne supprimée."); refreshBottles(); }
+        try { await db.deleteBottle(b.id); storage.remove("bottle-photos", b.photo_path); closeSheet(); toast("Ligne supprimée."); refreshBottles(); }
         catch (e) { toast(errText(e, "Suppression impossible.")); }
       });
     }
@@ -390,9 +485,20 @@ async function saveBottle(orig, editing) {
   };
   const btn = $("#b-save");
   btn.disabled = true;
+  const bottleId = editing ? orig.id : crypto.randomUUID();
+  let uploaded = null;
+  const photoPatch = {};
   try {
+    if (pst && pst.mode === "new") {
+      uploaded = state.cellar.id + "/" + bottleId + "-" + Date.now() + ".jpg";
+      try { await storage.upload("bottle-photos", uploaded, pst.blob); }
+      catch (e) { uploaded = null; throw new Error(photoSetupError(e, "Envoi de la photo impossible, réessaie.")); }
+      photoPatch.photo_path = uploaded;
+    } else if (pst && pst.mode === "none" && pst.orig) {
+      photoPatch.photo_path = null;
+    }
     if (editing) {
-      await db.updateBottle(orig.id, data);
+      await db.updateBottle(orig.id, { ...data, ...photoPatch });
       closeSheet(); toast("Bouteille modifiée.");
     } else {
       const key = norm(data.name) + "|" + (data.vintage || "nv") + "|" + norm(data.domaine);
@@ -400,15 +506,19 @@ async function saveBottle(orig, editing) {
       if (dup) {
         const patch = { qty: (dup.qty || 0) + q };
         ["price", "region", "apogee", "place", "description"].forEach((k) => { if (!dup[k] && data[k]) patch[k] = data[k]; });
+        if (uploaded && !dup.photo_path) { patch.photo_path = uploaded; }
+        else if (uploaded) { storage.remove("bottle-photos", uploaded); uploaded = null; delete photoPatch.photo_path; }
         await db.updateBottle(dup.id, patch);
         closeSheet(); toast("Déjà en cave : quantité portée à " + patch.qty + ".");
       } else {
-        await db.insertBottle({ cellar_id: state.cellar.id, ...data });
+        await db.insertBottle({ id: bottleId, cellar_id: state.cellar.id, ...data, ...photoPatch });
         closeSheet(); toast("Bouteille ajoutée.");
       }
     }
+    if (pst && pst.orig && "photo_path" in photoPatch) storage.remove("bottle-photos", pst.orig);
     refreshBottles();
   } catch (e) {
+    if (uploaded) storage.remove("bottle-photos", uploaded);
     toast(errText(e, "Enregistrement impossible, réessaie."));
     btn.disabled = false;
   }
@@ -442,10 +552,16 @@ $("#labelfile").addEventListener("change", async (e) => {
   const btn = $("#b-label");
   if (btn) { btn.disabled = true; btn.textContent = "Lecture…"; }
   try {
-    const b64 = await photoToBase64(f);
+    const blob = await imageToBlob(f, { max: 1024, quality: 0.82 });
+    const b64 = await blobToBase64(blob);
     const d = wineFromAI(await ai.wineFromImage(b64, "image/jpeg"));
     fillForm(d, false);
-    const n = $("#ai-note"); if (n) n.textContent = "Informations lues sur l'étiquette par l'IA : à vérifier. Le prix est indicatif.";
+    if (pst && $("#p-prev")) {
+      if (pst.url) URL.revokeObjectURL(pst.url);
+      pst.mode = "new"; pst.blob = blob; pst.url = URL.createObjectURL(blob);
+      renderPhotoPreview();
+    }
+    const n = $("#ai-note"); if (n) n.textContent = "Informations lues sur l'étiquette par l'IA : à vérifier. La photo est gardée pour la bouteille, tu peux la remplacer ou garder l'illustration.";
     toast("Étiquette lue, vérifie les champs.");
   } catch (err) { toast(errText(err, "Lecture impossible, réessaie.")); }
   finally { if (btn && btn.isConnected) { btn.disabled = false; btn.textContent = "Photo de l'étiquette"; } }
@@ -685,7 +801,14 @@ async function openAccountSheet() {
   const c = state.cellar;
   if (!c) return;
   const owner = c.role === "owner";
-  const html = "<h2>" + esc(c.name) + "</h2><p class=\"sub\">Connecté : " + esc(state.session && state.session.user.email || "") + "</p>"
+  const email = (state.session && state.session.user.email) || "";
+  const p = state.profile || {};
+  const html = "<h2>" + esc(c.name) + "</h2><p class=\"sub\">Connecté : " + esc(email) + "</p>"
+    + '<div class="profile"><span class="avatar big" id="av-big">' + avatarInner(p, email) + '</span><div class="pctl">'
+    + '<button type="button" class="btn small" id="av-pick">' + (p.avatar_path ? "Changer la photo" : "Ajouter une photo de profil") + "</button>"
+    + '<button type="button" class="btn small ghost" id="av-del"' + (p.avatar_path ? "" : " hidden") + ">Retirer la photo</button></div></div>"
+    + '<input type="file" id="av-file" accept="image/*" hidden>'
+    + '<label for="pf-name">Ton prénom</label><div class="grid2" style="grid-template-columns:1fr auto"><input id="pf-name" type="text" maxlength="60" autocomplete="given-name" value="' + esc(p.display_name || "") + '"><button type="button" class="btn" id="pf-save">Enregistrer</button></div>'
     + '<span class="lab">Personnes qui ont accès</span><ul class="members" id="members"><li>Chargement…</li></ul>'
     + (owner
       ? '<label for="m-email">Ajouter quelqu\'un (email de son compte)</label><div class="grid2" style="grid-template-columns:1fr auto"><input id="m-email" type="email" inputmode="email" autocomplete="off" placeholder="prenom@exemple.fr"><button type="button" class="btn primary" id="m-add">Ajouter</button></div>'
@@ -693,23 +816,83 @@ async function openAccountSheet() {
         + '<label for="m-name">Nom de la cave</label><div class="grid2" style="grid-template-columns:1fr auto"><input id="m-name" type="text" value="' + esc(c.name) + '"><button type="button" class="btn" id="m-rename">Renommer</button></div>'
       : "")
     + '<div class="acts"><button type="button" class="btn ghost" id="m-close">Fermer</button><button type="button" class="btn danger" id="m-out">Se déconnecter</button></div>';
-  openSheet(html, async () => {
+  openSheet(html, () => {
     $("#m-close").addEventListener("click", closeSheet);
     $("#m-out").addEventListener("click", async () => { closeSheet(); await auth.signOut(); });
+
     const loadMembers = async () => {
       try {
         const rows = await db.members(c.id);
+        const profs = {};
+        try {
+          const ps = await db.profiles(rows.map((m) => m.user_id));
+          ps.forEach((x) => { profs[x.user_id] = x; });
+          await storage.urls("avatars", ps.map((x) => x.avatar_path).filter(Boolean));
+        } catch (e) { /* profils pas encore activés */ }
         const el = $("#members"); if (!el) return;
-        el.innerHTML = rows.map((m) => "<li><span>" + esc(m.email) + "</span><small>" + (m.role === "owner" ? "propriétaire" : "membre") + "</small></li>").join("");
+        el.innerHTML = rows.map((m) => {
+          const pr = profs[m.user_id];
+          return '<li><span class="mem"><span class="avatar sm">' + avatarInner(pr, m.email) + "</span><span>" + esc((pr && pr.display_name) || m.email) + "</span></span><small>" + (m.role === "owner" ? "propriétaire" : "membre") + "</small></li>";
+        }).join("");
       } catch (e) { const el = $("#members"); if (el) el.innerHTML = "<li>Liste indisponible.</li>"; }
     };
     loadMembers();
+
+    const refreshAvatar = () => {
+      const big = $("#av-big"); if (big) big.innerHTML = avatarInner(state.profile, email);
+      const has = !!(state.profile && state.profile.avatar_path);
+      const pick = $("#av-pick"); if (pick) pick.textContent = has ? "Changer la photo" : "Ajouter une photo de profil";
+      const del = $("#av-del"); if (del) del.hidden = !has;
+      renderMenuBtn();
+    };
+    $("#av-pick").addEventListener("click", () => $("#av-file").click());
+    $("#av-file").addEventListener("change", async (e) => {
+      const f = e.target.files && e.target.files[0];
+      e.target.value = "";
+      if (!f) return;
+      const btn = $("#av-pick");
+      btn.disabled = true;
+      try {
+        const blob = await imageToBlob(f, { max: 256, square: true, quality: 0.85 });
+        const path = state.userId + "/avatar-" + Date.now() + ".jpg";
+        await storage.upload("avatars", path, blob);
+        const old = state.profile && state.profile.avatar_path;
+        await db.saveProfile(state.userId, { avatar_path: path });
+        state.profile = { ...(state.profile || {}), avatar_path: path };
+        await storage.urls("avatars", [path]);
+        if (old) storage.remove("avatars", old);
+        refreshAvatar(); loadMembers();
+        toast("Photo de profil mise à jour.");
+      } catch (err) { toast(photoSetupError(err, "Envoi de la photo impossible.")); }
+      finally { if (btn.isConnected) btn.disabled = false; }
+    });
+    $("#av-del").addEventListener("click", async () => {
+      const old = state.profile && state.profile.avatar_path;
+      if (!old) return;
+      try {
+        await db.saveProfile(state.userId, { avatar_path: null });
+        state.profile = { ...state.profile, avatar_path: null };
+        storage.remove("avatars", old);
+        refreshAvatar(); loadMembers();
+        toast("Photo retirée.");
+      } catch (err) { toast(errText(err, "Suppression impossible.")); }
+    });
+    $("#pf-save").addEventListener("click", async () => {
+      const name = val("pf-name");
+      try {
+        await db.saveProfile(state.userId, { display_name: name || null });
+        state.profile = { ...(state.profile || {}), display_name: name || null };
+        refreshAvatar(); loadMembers();
+        toast("Prénom enregistré.");
+      } catch (err) { toast(photoSetupError(err, "Enregistrement impossible.")); }
+    });
+
     if (owner) {
       $("#m-add").addEventListener("click", async () => {
-        const email = val("m-email");
-        if (!email) return;
+        const mail = val("m-email");
+        if (!mail) return;
         const btn = $("#m-add"); btn.disabled = true;
-        try { await db.invite(c.id, email); $("#m-email").value = ""; toast("Accès ajouté."); await loadMembers(); }
+        try { await db.invite(c.id, mail); $("#m-email").value = ""; toast("Accès ajouté."); await loadMembers(); }
         catch (e) { toast(errText(e, "Ajout impossible.")); }
         finally { btn.disabled = false; }
       });

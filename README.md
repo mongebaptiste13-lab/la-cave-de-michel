@@ -11,7 +11,7 @@ Application web pour gérer une cave à vin : bouteilles en stock, ajout par QR 
 
 ### 1. Base de données
 
-Appliquer `supabase/migrations/20261018000000_cave.sql` une seule fois : éditeur SQL de Supabase (Dashboard, SQL Editor), coller le fichier, Run.
+Appliquer, dans cet ordre et une seule fois chacun, `supabase/migrations/20261018000000_cave.sql` puis `supabase/migrations/20261018120000_photos_profiles.sql` (photos de bouteilles, profils et photos de profil) : éditeur SQL de Supabase (Dashboard, SQL Editor), coller le fichier, Run.
 
 ### 2. Connexion
 

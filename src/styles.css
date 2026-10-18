@@ -144,3 +144,24 @@ button{cursor:pointer}
 
 @media (prefers-reduced-motion:no-preference){.sheet{animation:up .22s ease-out}@keyframes up{from{transform:translateY(24px);opacity:.6}to{transform:none;opacity:1}}}
 @media (max-width:420px){.grid3{grid-template-columns:1fr 1fr}.grid3>div:last-child{grid-column:1/-1}}
+
+/* Photos de bouteilles et profils */
+.row{grid-template-columns:56px minmax(0,1fr) auto}
+.thumb{position:relative;width:56px;height:72px;border-radius:10px;background:var(--surface-2);display:grid;place-items:center}
+.thumb img{width:100%;height:100%;object-fit:cover;border-radius:10px;display:block}
+.thumb svg{height:92%;width:auto;display:block}
+.qtybadge{position:absolute;right:-6px;bottom:-6px;min-width:24px;height:24px;padding:0 6px;border-radius:12px;background:var(--c);color:var(--cf);font:500 .78rem/1 var(--mono);display:grid;place-items:center;border:2px solid #fff;font-variant-numeric:tabular-nums}
+.photoblk{display:flex;gap:14px;align-items:center;margin:4px 0 8px}
+.pprev{flex:0 0 112px;height:140px;border-radius:14px;background:var(--surface-2);display:grid;place-items:center;overflow:hidden}
+.pprev img{width:100%;height:100%;object-fit:cover;display:block}
+.pprev svg{height:92%;width:auto;display:block}
+.pctl{display:flex;flex-direction:column;gap:6px;align-items:flex-start;min-width:0}
+.avatar{width:42px;height:42px;border-radius:50%;overflow:hidden;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent);font:600 1rem/1 var(--body);flex:0 0 auto}
+.avatar img{width:100%;height:100%;object-fit:cover;display:block}
+.avatar.big{width:84px;height:84px;font-size:2rem}
+.avatar.sm{width:30px;height:30px;font-size:.85rem}
+.iconbtn{padding:0;overflow:hidden}
+.iconbtn .avatar{width:100%;height:100%}
+.profile{display:flex;gap:14px;align-items:center;margin:4px 0 4px}
+.members li{align-items:center}
+.mem{display:flex;gap:10px;align-items:center;min-width:0}

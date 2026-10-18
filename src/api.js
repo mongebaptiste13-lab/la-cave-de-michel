@@ -64,6 +64,16 @@ export const db = {
   async invite(cellarId, email) {
     must(await supabase.rpc("add_member_by_email", { p_cellar: cellarId, p_email: email }));
   },
+  async myProfile(userId) {
+    return must(await supabase.from("profiles").select("*").eq("user_id", userId).maybeSingle());
+  },
+  async profiles(ids) {
+    if (!ids.length) return [];
+    return must(await supabase.from("profiles").select("*").in("user_id", ids));
+  },
+  async saveProfile(userId, patch) {
+    must(await supabase.from("profiles").upsert({ user_id: userId, ...patch, updated_at: new Date().toISOString() }, { onConflict: "user_id" }));
+  },
   async rename(cellarId, name) {
     must(await supabase.from("cellars").update({ name }).eq("id", cellarId));
   },
@@ -74,6 +84,38 @@ export const db = {
     });
     ch.subscribe();
     return () => supabase.removeChannel(ch);
+  },
+};
+
+const urlCache = new Map();
+export const storage = {
+  async upload(bucket, path, blob) {
+    const { error } = await supabase.storage.from(bucket).upload(path, blob, { contentType: "image/jpeg", upsert: false, cacheControl: "31536000" });
+    if (error) throw error;
+  },
+  async remove(bucket, path) {
+    if (!path) return;
+    urlCache.delete(bucket + "|" + path);
+    try { await supabase.storage.from(bucket).remove([path]); } catch (e) { /* best effort */ }
+  },
+  cached(bucket, path) {
+    const e = urlCache.get(bucket + "|" + path);
+    return e && e.exp > Date.now() ? e.url : null;
+  },
+  async urls(bucket, paths) {
+    const now = Date.now();
+    const need = [...new Set(paths.filter(Boolean))].filter((p) => {
+      const e = urlCache.get(bucket + "|" + p);
+      return !(e && e.exp > now + 20 * 60 * 1000);
+    });
+    if (need.length) {
+      const { data, error } = await supabase.storage.from(bucket).createSignedUrls(need, 3600);
+      if (error) throw error;
+      (data || []).forEach((d) => {
+        if (d.signedUrl && d.path) urlCache.set(bucket + "|" + d.path, { url: d.signedUrl, exp: now + 55 * 60 * 1000 });
+      });
+    }
+    return paths.map((p) => storage.cached(bucket, p));
   },
 };
 
@@ -109,6 +151,32 @@ export async function photoToBase64(file, max = 1024) {
   c.height = Math.max(1, Math.round(bmp.height * sc));
   c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
   const blob = await new Promise((res) => c.toBlob(res, "image/jpeg", 0.82));
+  const dataUrl = await new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(fr.result);
+    fr.onerror = rej;
+    fr.readAsDataURL(blob);
+  });
+  return String(dataUrl).split(",")[1];
+}
+
+// Redimensionne (et recadre en carré si demandé) puis encode en JPEG.
+export async function imageToBlob(file, { max = 1024, square = false, quality = 0.82 } = {}) {
+  const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
+  let sx = 0, sy = 0, sw = bmp.width, sh = bmp.height;
+  if (square) {
+    const s = Math.min(sw, sh);
+    sx = (sw - s) / 2; sy = (sh - s) / 2; sw = s; sh = s;
+  }
+  const sc = Math.min(1, max / Math.max(sw, sh));
+  const w = Math.max(1, Math.round(sw * sc)), h = Math.max(1, Math.round(sh * sc));
+  const c = document.createElement("canvas");
+  c.width = w; c.height = h;
+  c.getContext("2d").drawImage(bmp, sx, sy, sw, sh, 0, 0, w, h);
+  return new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error("Image illisible."))), "image/jpeg", quality));
+}
+
+export async function blobToBase64(blob) {
   const dataUrl = await new Promise((res, rej) => {
     const fr = new FileReader();
     fr.onload = () => res(fr.result);
