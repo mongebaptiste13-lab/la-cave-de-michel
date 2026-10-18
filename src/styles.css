@@ -168,5 +168,5 @@ button{cursor:pointer}
 
 /* Fenêtres ouvertes : la page derrière ne défile plus, seule la fenêtre défile */
 body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
-.scrim{overscroll-behavior:contain;touch-action:none}
-.sheet{overscroll-behavior:contain;overflow-y:auto;-webkit-overflow-scrolling:touch;touch-action:pan-y}
+.scrim{overscroll-behavior:contain}
+.sheet{overscroll-behavior:contain;overflow-y:auto;-webkit-overflow-scrolling:touch}
