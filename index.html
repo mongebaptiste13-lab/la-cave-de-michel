@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#6b1427">
+  <meta name="color-scheme" content="light">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="La cave de Michel">
+  <title>La cave de Michel</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Young+Serif&display=swap">
+</head>
+<body>
+  <div id="boot" class="boot"><span>La cave de Michel</span></div>
+
+  <!-- Connexion -->
+  <main id="auth" class="screen" hidden>
+    <div class="auth-card">
+      <svg class="logo" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="24" fill="currentColor"/><path d="M17 11h14v9a7 7 0 0 1-14 0z" fill="#fff"/><path d="M24 27v10M18 37h12" stroke="#fff" stroke-width="2.4" stroke-linecap="round" fill="none"/></svg>
+      <h1>La cave de Michel</h1>
+      <p class="lead">Connecte-toi pour ouvrir la cave.</p>
+      <div class="seg tabs" role="tablist" aria-label="Mode">
+        <input type="radio" name="amode" id="am-in" value="in" checked><label for="am-in">Connexion</label>
+        <input type="radio" name="amode" id="am-up" value="up"><label for="am-up">Créer un compte</label>
+      </div>
+      <form id="auth-form" novalidate>
+        <label for="a-email">Email</label>
+        <input id="a-email" type="email" autocomplete="email" inputmode="email" required>
+        <label for="a-pw">Mot de passe</label>
+        <input id="a-pw" type="password" autocomplete="current-password" required>
+        <p class="msg" id="a-msg" role="alert" hidden></p>
+        <button type="submit" class="btn primary block" id="a-go">Se connecter</button>
+        <button type="button" class="linkbtn" id="a-reset">Mot de passe oublié ?</button>
+      </form>
+    </div>
+  </main>
+
+  <!-- Première connexion : créer ou rejoindre -->
+  <main id="onboard" class="screen" hidden>
+    <div class="auth-card">
+      <svg class="logo" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="24" fill="currentColor"/><path d="M17 11h14v9a7 7 0 0 1-14 0z" fill="#fff"/><path d="M24 27v10M18 37h12" stroke="#fff" stroke-width="2.4" stroke-linecap="round" fill="none"/></svg>
+      <h1>Bienvenue</h1>
+      <p class="lead">Ce compte n'est relié à aucune cave pour l'instant.</p>
+      <label for="o-name">Nom de la cave</label>
+      <input id="o-name" type="text" value="La cave de Michel" autocomplete="off">
+      <button type="button" class="btn primary block" id="o-create">Créer cette cave</button>
+      <p class="note">Tu as été invité(e) ? Demande au propriétaire de t'ajouter avec l'email <b id="o-email"></b>, puis recharge.</p>
+      <button type="button" class="btn block" id="o-reload">Recharger</button>
+      <button type="button" class="linkbtn" id="o-logout">Se déconnecter</button>
+    </div>
+  </main>
+
+  <!-- Application -->
+  <div id="app" hidden>
+    <header class="top">
+      <div class="top-in">
+        <h1 class="brand" id="brand">La cave de Michel</h1>
+        <button type="button" class="iconbtn" id="menu" aria-label="Compte et partage">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+        </button>
+      </div>
+    </header>
+    <div class="wrap">
+      <div id="banners"></div>
+
+      <section class="view" id="v-cave" aria-label="Mes bouteilles">
+        <div class="stats" id="stats">
+          <div><b id="s-qty">–</b><span>bouteilles</span></div>
+          <div><b id="s-ref">–</b><span>références</span></div>
+          <div><b id="s-val">–</b><span>valeur estimée</span></div>
+        </div>
+        <div class="tools">
+          <input type="search" id="q" placeholder="Chercher un vin, un domaine, une région" aria-label="Rechercher">
+          <select id="sort" aria-label="Trier">
+            <option value="recent">Récents</option>
+            <option value="name">Nom</option>
+            <option value="vintage">Millésime</option>
+            <option value="price">Prix</option>
+          </select>
+        </div>
+        <div class="chips" id="chips"></div>
+        <div id="list"></div>
+      </section>
+
+      <section class="view" id="v-hist" aria-label="Historique" hidden>
+        <div class="chips" id="hchips"></div>
+        <div class="summary" id="hsum"></div>
+        <div id="hlist"></div>
+      </section>
+
+      <section class="view" id="v-chat" aria-label="Sommelier" hidden>
+        <div class="log" id="chatlog"></div>
+        <div class="suggest" id="suggest"></div>
+        <form class="composer" id="composer">
+          <textarea id="chatin" rows="1" placeholder="Qu'est-ce qu'on mange ce soir ?" aria-label="Question au sommelier"></textarea>
+          <button type="submit" class="btn primary" id="send">Envoyer</button>
+        </form>
+      </section>
+    </div>
+
+    <button class="fab" id="fab" type="button" aria-label="Ajouter une bouteille">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      Ajouter
+    </button>
+
+    <nav class="nav" aria-label="Navigation">
+      <button type="button" data-view="cave" aria-current="page">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2h4v4c0 1.5 2 2.5 2 5v10a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V11c0-2.5 2-3.5 2-5z"/><path d="M8 14h8"/></svg>
+        Bouteilles
+      </button>
+      <button type="button" data-view="hist">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        Historique
+      </button>
+      <button type="button" data-view="chat">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h10v5a5 5 0 0 1-10 0z"/><path d="M12 13v8M8 21h8"/></svg>
+        Sommelier
+      </button>
+    </nav>
+  </div>
+
+  <div id="overlay"></div>
+  <div id="toastbox" aria-live="polite"></div>
+  <input type="file" id="qrfile" accept="image/*" capture="environment" hidden>
+  <input type="file" id="labelfile" accept="image/*" capture="environment" hidden>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
