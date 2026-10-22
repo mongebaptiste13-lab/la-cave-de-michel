@@ -1,11 +1,18 @@
-# La cave de Michel
+# Wine Cellar Manager with AI Sommelier
 
-Application web pour gérer une cave à vin : bouteilles en stock, ajout par QR code, photo d'étiquette ou saisie, retraits avec motif (bu, vendu, donné, abîmé), historique et sommelier IA.
+Installable web app to manage a wine cellar: stock of bottles, entry by QR code, label photo or manual input, removals with a reason (drunk, sold, given, damaged), full history, and an AI sommelier. Interface in French.
 
-- **Front** : Vite, JavaScript, installable sur l'écran d'accueil du téléphone.
-- **Base et connexion** : Supabase (Postgres, Auth, sécurité par ligne, temps réel).
-- **IA** : fonction serveur Supabase `ai` qui appelle l'API Gemini (offre gratuite). La clé reste côté serveur.
-- **Hébergement** : Netlify.
+## Features
+
+- Bottle inventory with QR-code scan, label photo or manual entry
+- Removals with reason and complete movement history
+- Multi-user cellar: the owner shares access by email, with row-level security in the database
+- AI sommelier: Supabase Edge Function calling the Gemini API, authenticated, rate-limited per user (80 calls/day by default), reads only the cellar of the signed-in user
+- Real-time updates, installable on the phone home screen
+
+## Stack
+
+Vite · JavaScript · Supabase (Postgres, Auth, Row Level Security, Realtime, Edge Functions in TypeScript) · Google Gemini API · Netlify
 
 ## Mise en route
 
